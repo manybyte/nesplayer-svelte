@@ -62,8 +62,8 @@ node -e "
 echo "export const version = '$V';" > "$VER"
 
 cd "$DIR"
-npm install
-npm run prepack
+bun install
+bun run prepublishOnly
 npm pack
 
 echo "done: nesplayer-svelte-$V.tgz"
