@@ -5,6 +5,7 @@
 	import { audioWorkletSrc } from '$lib/wasm/audio-worklet-src.js';
 	import ControllerPanel from './ControllerPanel.svelte';
 	import { version } from '$lib/version.js';
+	import { unzipSync } from 'fflate';
 
 	interface NESModule {
 		HEAPU8:                Uint8Array;
@@ -63,7 +64,7 @@
 	const SCREEN_W  = 256;
 	const SCREEN_H  = 240;
 	const ASPECT    = (SCREEN_W * 8 / 7) / SCREEN_H;
-	const RING_SIZE = 4096;
+	const RING_SIZE = 8192;
 
 	const VERT_SRC = `
 		attribute vec2 a_position;
@@ -124,6 +125,8 @@
 	let currentRomName = '';
 	let currentRomData: Uint8Array | null = null;
 	let autoPaused     = $state(false);
+	let cursorHidden   = $state(false);
+	let cursorTimer    = 0;
 
 	let gl:         WebGLRenderingContext | null = null;
 	let texture:    WebGLTexture | null         = null;
@@ -133,6 +136,7 @@
 	let animId:     number                      = 0;
 	let lastTime:   number                      = 0;
 	let cycleAccum: number                      = 0;
+	let staticBuf   = new Uint8Array(SCREEN_W * SCREEN_H * 4);
 
 	let audioCtx:   AudioContext | null     = null;
 	let gainNode:   GainNode | null         = null;
@@ -167,10 +171,18 @@
 	let gpQsSavePrev: Record<string, boolean> = {};
 	let gpQsLoadPrev: Record<string, boolean> = {};
 
-	type DisconnectWarning = { padId: string; padName: string; player: 1 | 2 };
-	let disconnectWarning        = $state<DisconnectWarning | null>(null);
-	let waitingReconnect         = $state<{ padId: string; player: 1 | 2 } | null>(null);
-	let disconnectAutoPaused     = false;
+	let cachedZipData: Uint8Array | null = null;
+	let cachedZipName: string | null = null;
+	type ZipEntry = { path: string; data: Uint8Array };
+	let zipEntries = $state<ZipEntry[]>([]);
+	let zipEntryIndex = $state(0);
+	let zipStemName = $state('');
+	let showZipChooser = $state(false);
+	let zipChooserList = $state<HTMLDivElement | undefined>();
+	let dropTarget = $state(false);
+	let lastPickHandle: FileSystemFileHandle | null = null;
+
+	let autoRevertPads: Record<string, 1 | 2> = {};
 	let controllerPanelAutoPaused = false;
 	let configLoaded             = $state(false);
 	let savedP1GamepadId     = '';
@@ -204,33 +216,6 @@
 			if (cfg.quickSaveKey)    { quickSaveKey    = cfg.quickSaveKey; }
 			if (cfg.quickLoadKey)    { quickLoadKey    = cfg.quickLoadKey; }
 		} catch { }
-	}
-
-	function onDisconnectSwitchKeyboard() {
-		if (!disconnectWarning) { return; }
-		const { player } = disconnectWarning;
-		if (player === 1) { player1Input = { type: 'keyboard' }; }
-		else              { player2Input = { type: 'keyboard' }; }
-		if (disconnectAutoPaused) {
-			nes?._resume();
-			autoPaused           = false;
-			disconnectAutoPaused = false;
-		}
-		disconnectWarning = null;
-		waitingReconnect  = null;
-	}
-
-	function onDisconnectWait() {
-		if (!disconnectWarning) { return; }
-		waitingReconnect  = { padId: disconnectWarning.padId, player: disconnectWarning.player };
-		disconnectWarning = null;
-	}
-
-	function onDisconnectPowerOff() {
-		disconnectWarning    = null;
-		waitingReconnect     = null;
-		disconnectAutoPaused = false;
-		onPower();
 	}
 
 	function showStateMessage(msg: string) {
@@ -300,10 +285,17 @@
 		const rect        = container.getBoundingClientRect();
 		const canvasRight = rect.right - overlayLeft;
 		showOverlay = canvasRight - e.clientX <= 52;
+		cursorHidden = false;
+		clearTimeout(cursorTimer);
+		if (powered && !paused && !autoPaused) {
+			cursorTimer = window.setTimeout(() => { cursorHidden = true; }, 3000);
+		}
 	}
 
 	function onContainerMouseLeave() {
 		showOverlay = false;
+		cursorHidden = false;
+		clearTimeout(cursorTimer);
 	}
 
 	function pollPlayer(input: PlayerInput, kmap: Record<string, number>): number {
@@ -363,6 +355,77 @@
 			str += String.fromCharCode(...data.subarray(i, i + CHUNK));
 		}
 		return btoa(str);
+	}
+
+	function isVisibleNesFile(f: { name: string }): boolean {
+		if (!f.name.endsWith('.nes')) { return false; }
+		if (f.name.includes('__MACOSX/')) { return false; }
+		let base = f.name.split('/').pop() ?? '';
+		return !base.startsWith('.');
+	}
+
+	function openZipChooser(zipName: string, entries: [string, Uint8Array][]) {
+		zipStemName = zipName.endsWith('.zip') ? zipName.slice(0, -4) : zipName;
+		zipEntries  = entries.map(([path, data]) => ({ path, data }));
+		zipEntryIndex = 0;
+		showZipChooser = true;
+	}
+
+	async function bootRomEntry(module: NESModule, data: Uint8Array, romName: string) {
+		flushSRAM(module);
+		flushFlash(module);
+		module._powerOff();
+		module._powerOn();
+		module._clearAudioSamples();
+		lastTime = 0; cycleAccum = 0;
+		paused = false; autoPaused = false;
+		currentRomName = romName;
+		currentRomData = data;
+		powered = true;
+		module._resume();
+		loadROM(module, data);
+		container?.focus();
+		clearTimeout(cursorTimer);
+		cursorHidden = false;
+		cursorTimer = window.setTimeout(() => { cursorHidden = true; }, 3000);
+	}
+
+	async function bootZipEntry(entry: ZipEntry) {
+		if (!nes) { return; }
+		showZipChooser = false;
+		let nesBasename = entry.path.split('/').pop() ?? entry.path;
+		let romName = zipStemName + '-' + nesBasename.replace(/\.nes$/i, '');
+		await bootRomEntry(nes, entry.data, romName);
+	}
+
+	async function loadGame(file: File) {
+		if (!nes) { return; }
+		try {
+			if (file.name.endsWith('.zip')) {
+				let rawZip = new Uint8Array(await file.arrayBuffer());
+				let zip = unzipSync(rawZip, { filter: isVisibleNesFile });
+				let entries = Object.entries(zip) as [string, Uint8Array][];
+				if (entries.length === 0) { return; }
+				cachedZipData = rawZip;
+				cachedZipName = file.name;
+				if (entries.length === 1) {
+					let zipStem = file.name.slice(0, -4);
+					let nesBasename = entries[0][0].split('/').pop() ?? entries[0][0];
+					let romName = zipStem + '-' + nesBasename.replace(/\.nes$/i, '');
+					await bootRomEntry(nes, entries[0][1], romName);
+				} else {
+					openZipChooser(file.name, entries);
+				}
+			} else {
+				cachedZipData = null;
+				cachedZipName = null;
+				let data = new Uint8Array(await file.arrayBuffer());
+				let romName = file.name.replace(/\.nes$/i, '');
+				await bootRomEntry(nes, data, romName);
+			}
+		} catch (err) {
+			console.error('[NESScreen] ROM load failed:', err);
+		}
 	}
 
 	function restoreSaves(module: NESModule) {
@@ -569,6 +632,33 @@
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 	}
 
+	function drawStatic() {
+		if (!gl || !texture || !program || !posBuf || !texBuf) {
+			return;
+		}
+		for (let i = 0; i < staticBuf.length; i += 4) {
+			const v = Math.random() * 255 | 0;
+			staticBuf[i]     = v;
+			staticBuf[i + 1] = v;
+			staticBuf[i + 2] = v;
+			staticBuf[i + 3] = 255;
+		}
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, SCREEN_W, SCREEN_H, 0, gl.RGBA, gl.UNSIGNED_BYTE, staticBuf);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.viewport(0, 0, canvas!.width, canvas!.height);
+		gl.useProgram(program);
+		const posLoc = gl.getAttribLocation(program, 'a_position');
+		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+		gl.enableVertexAttribArray(posLoc);
+		gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+		const texLoc = gl.getAttribLocation(program, 'a_texCoord');
+		gl.bindBuffer(gl.ARRAY_BUFFER, texBuf);
+		gl.enableVertexAttribArray(texLoc);
+		gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	}
+
 	function runFrame(currentTime: number) {
 		animId = requestAnimationFrame(runFrame);
 
@@ -578,37 +668,6 @@
 		}
 
 		const livePads = [...navigator.getGamepads()];
-
-		if (!disconnectWarning && powered && !paused && !autoPaused) {
-			for (const player of [1, 2] as const) {
-				const inp = player === 1 ? player1Input : player2Input;
-				if (inp.type !== 'gamepad') { continue; }
-				if (!detectedGamepads.some(p => p.id === inp.id)) { continue; }
-				if (!livePads.some(p => p?.connected && p.id === inp.id)) {
-					detectedGamepads     = detectedGamepads.filter(p => p.id !== inp.id);
-					module._pause();
-					disconnectAutoPaused = true;
-					autoPaused           = true;
-					disconnectWarning    = { padId: inp.id, padName: padName(inp.id), player };
-					break;
-				}
-			}
-		}
-
-		const pendingReconnectId = waitingReconnect?.padId ?? disconnectWarning?.padId;
-		if (pendingReconnectId) {
-			const rejoined = livePads.find(p => p?.connected && p.id === pendingReconnectId);
-			if (rejoined) {
-				if (!detectedGamepads.some(p => p.id === rejoined.id)) {
-					detectedGamepads = [...detectedGamepads, padInfo(rejoined)];
-				}
-				module._resume();
-				autoPaused           = false;
-				disconnectAutoPaused = false;
-				waitingReconnect     = null;
-				disconnectWarning    = null;
-			}
-		}
 
 		module._setButtons(0, pollPlayer(player1Input, player1KeyMap));
 		module._setButtons(1, pollPlayer(player2Input, player2KeyMap));
@@ -633,8 +692,16 @@
 		}
 
 		if (module._isPaused()) {
+			if (powered && !currentRomData) {
+				drawStatic();
+			}
 			lastTime   = 0;
 			cycleAccum = 0;
+			return;
+		}
+
+		if (!currentRomData) {
+			drawStatic();
 			return;
 		}
 
@@ -714,6 +781,13 @@
 	});
 
 	$effect(() => {
+		if (showZipChooser && zipChooserList) {
+			let el = zipChooserList.children[zipEntryIndex] as HTMLElement | undefined;
+			el?.scrollIntoView({ block: 'nearest' });
+		}
+	});
+
+	$effect(() => {
 		if (!configLoaded) { return; }
 		localStorage.setItem(INPUT_CONFIG_KEY, JSON.stringify({
 			player1Input, player2Input, player1KeyMap, player2KeyMap, gamepadProfiles,
@@ -744,10 +818,8 @@
 		gl.clear(gl.COLOR_BUFFER_BIT);
 	}
 
-	function onPower() {
-		if (!nes) {
-			return;
-		}
+	async function onPower() {
+		if (!nes) { return; }
 		if (powered) {
 			flushSRAM(nes);
 			flushFlash(nes);
@@ -759,14 +831,23 @@
 			clearScreen();
 			powered = false;
 			paused  = false;
+		} else if (cachedZipData && cachedZipName) {
+			let zip = unzipSync(cachedZipData, { filter: isVisibleNesFile });
+			let entries = Object.entries(zip) as [string, Uint8Array][];
+			if (entries.length === 1) {
+				let zipStem = cachedZipName.endsWith('.zip') ? cachedZipName.slice(0, -4) : cachedZipName;
+				let nesBasename = entries[0][0].split('/').pop() ?? entries[0][0];
+				let romName = zipStem + '-' + nesBasename.replace(/\.nes$/i, '');
+				await bootRomEntry(nes, entries[0][1], romName);
+			} else if (entries.length > 1) {
+				openZipChooser(cachedZipName, entries);
+			}
+		} else if (currentRomData) {
+			await bootRomEntry(nes, currentRomData, currentRomName);
 		} else {
 			nes._powerOn();
 			nes._resume();
-			lastTime   = 0;
-			cycleAccum = 0;
-			if (currentRomData) {
-				loadROM(nes, currentRomData);
-			}
+			lastTime = 0; cycleAccum = 0;
 			powered = true;
 		}
 	}
@@ -825,35 +906,40 @@
 		muted = !muted;
 	}
 
-	function onInsertRomClick(e: MouseEvent) {
+	async function onInsertRomClick(e: MouseEvent) {
 		(e.currentTarget as HTMLButtonElement).blur();
-		fileInput?.click();
+		if ('showOpenFilePicker' in window) {
+			let wasRunning = powered && !paused && !autoPaused;
+			if (wasRunning) { nes?._pause(); autoPaused = true; }
+			try {
+				let opts: any = {
+					types: [{ description: 'NES ROMs', accept: { 'application/octet-stream': ['.nes', '.zip'] } }],
+					multiple: false,
+				};
+				if (lastPickHandle) { opts.startIn = lastPickHandle; }
+				let [handle] = await (window as any).showOpenFilePicker(opts);
+				lastPickHandle = handle;
+				await loadGame(await handle.getFile());
+			} catch (err: any) {
+				if (err.name !== 'AbortError') { console.error('[NESScreen] File picker error:', err); }
+				else if (wasRunning) { nes?._resume(); autoPaused = false; }
+			}
+		} else {
+			fileInput?.click();
+		}
 	}
 
 	async function onFileChange(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0];
-		if (!file || !nes) {
-			return;
-		}
-
-		flushSRAM(nes);
-		flushFlash(nes);
-		nes._reset();
-		nes._clearAudioSamples();
-
-		lastTime   = 0;
-		cycleAccum = 0;
-		paused     = false;
-		autoPaused = false;
-
-		currentRomName = file.name.replace(/\.nes$/i, '');
-		const data     = new Uint8Array(await file.arrayBuffer());
-		currentRomData = data;
-		powered        = true;
-		nes._resume();
-		loadROM(nes, data);
-
+		let file = (e.target as HTMLInputElement).files?.[0];
+		if (file) { await loadGame(file); }
 		(e.target as HTMLInputElement).value = '';
+	}
+
+	async function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		dropTarget = false;
+		let file = Array.from(e.dataTransfer?.files ?? []).find(f => f.name.endsWith('.nes') || f.name.endsWith('.zip'));
+		if (file) { await loadGame(file); }
 	}
 
 	onMount(() => {
@@ -918,31 +1004,26 @@
 		function handlePadConnect(gp: Gamepad) {
 			if (detectedGamepads.some(p => p.id === gp.id)) { return; }
 			detectedGamepads = [...detectedGamepads, padInfo(gp)];
-			applyAutoAssign(gp.id);
-			const pendingId = waitingReconnect?.padId ?? disconnectWarning?.padId;
-			if (pendingId === gp.id) {
-				if (disconnectAutoPaused) {
-					nes?._resume();
-					autoPaused           = false;
-					disconnectAutoPaused = false;
-				}
-				waitingReconnect  = null;
-				disconnectWarning = null;
+			const revertPlayer = autoRevertPads[gp.id];
+			if (revertPlayer !== undefined) {
+				const { [gp.id]: _, ...rest } = autoRevertPads;
+				autoRevertPads = rest;
+				if (revertPlayer === 1) { player1Input = { type: 'gamepad', id: gp.id }; }
+				else                    { player2Input = { type: 'gamepad', id: gp.id }; }
+			} else {
+				applyAutoAssign(gp.id);
 			}
 		}
 
 		function handlePadDisconnect(id: string) {
 			if (!detectedGamepads.some(p => p.id === id)) { return; }
-			if (disconnectWarning?.padId === id) { return; }
 			detectedGamepads = detectedGamepads.filter(p => p.id !== id);
-			const player =
-				player1Input.type === 'gamepad' && player1Input.id === id ? 1 as const :
-				player2Input.type === 'gamepad' && player2Input.id === id ? 2 as const : null;
-			if (player !== null && powered && !paused && !autoPaused) {
-				nes?._pause();
-				disconnectAutoPaused = true;
-				autoPaused           = true;
-				disconnectWarning    = { padId: id, padName: padName(id), player };
+			if (player1Input.type === 'gamepad' && player1Input.id === id) {
+				autoRevertPads = { ...autoRevertPads, [id]: 1 };
+				player1Input = { type: 'keyboard' };
+			} else if (player2Input.type === 'gamepad' && player2Input.id === id) {
+				autoRevertPads = { ...autoRevertPads, [id]: 2 };
+				player2Input = { type: 'keyboard' };
 			}
 		}
 
@@ -1001,9 +1082,19 @@
 	});
 </script>
 
+<svelte:window onkeydown={(e) => {
+	if (!showZipChooser) { return; }
+	if (e.code === 'ArrowUp')   { e.preventDefault(); zipEntryIndex = Math.max(0, zipEntryIndex - 1); }
+	else if (e.code === 'ArrowDown')  { e.preventDefault(); zipEntryIndex = Math.min(zipEntries.length - 1, zipEntryIndex + 1); }
+	else if (e.code === 'Enter')      { void bootZipEntry(zipEntries[zipEntryIndex]); }
+	else if (e.code === 'Escape')     { showZipChooser = false; }
+}} />
+
 <div
 	bind:this={container}
 	class="nes-screen"
+	class:drop-target={dropTarget}
+	class:cursor-hidden={cursorHidden}
 	role="application"
 	aria-label="NES emulator"
 	tabindex="-1"
@@ -1013,6 +1104,9 @@
 	onmouseleave={onContainerMouseLeave}
 	onfocusin={onContainerFocusIn}
 	onfocusout={onContainerFocusOut}
+	ondragover={(e) => { if (Array.from(e.dataTransfer?.items ?? []).some(i => i.kind === 'file')) { e.preventDefault(); dropTarget = true; } }}
+	ondragleave={(e) => { if (!e.relatedTarget || !(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) { dropTarget = false; } }}
+	ondrop={handleDrop}
 >
 	<canvas bind:this={canvas}></canvas>
 
@@ -1030,19 +1124,20 @@
 			class="overlay-panel"
 			role="toolbar"
 			aria-label="Emulator controls"
+			tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
 			ondblclick={(e) => e.stopPropagation()}
 			onkeydown={(e) => e.stopPropagation()}
 		>
 
-			<button class="overlay-btn" class:powered data-tip={powered ? 'Power off' : 'Power on'} onclick={onPower}>
+			<button class="overlay-btn" class:powered aria-label={powered ? 'Power off' : 'Power on'} data-tip={powered ? 'Power off' : 'Power on'} onclick={onPower}>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M12 2v6"/>
 					<path d="M6.4 5.4a8 8 0 1 0 11.2 0"/>
 				</svg>
 			</button>
 
-			<button class="overlay-btn" class:active={paused || autoPaused} data-tip={(paused || autoPaused) ? 'Resume' : 'Pause'} onclick={onPauseToggle}>
+			<button class="overlay-btn" class:active={paused || autoPaused} aria-label={(paused || autoPaused) ? 'Resume' : 'Pause'} data-tip={(paused || autoPaused) ? 'Resume' : 'Pause'} onclick={onPauseToggle}>
 				{#if paused || autoPaused}
 					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<polygon points="5 3 19 12 5 21 5 3"/>
@@ -1055,7 +1150,7 @@
 				{/if}
 			</button>
 
-			<button class="overlay-btn" data-tip="Reset" onclick={onReset}>
+			<button class="overlay-btn" aria-label="Reset" data-tip="Reset" onclick={onReset}>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
 					<path d="M3 3v5h5"/>
@@ -1072,7 +1167,7 @@
 				/>
 			</div>
 
-			<button class="overlay-btn" class:active={muted} data-tip={muted ? 'Unmute' : 'Mute'} onclick={onMuteToggle}>
+			<button class="overlay-btn" class:active={muted} aria-label={muted ? 'Unmute' : 'Mute'} data-tip={muted ? 'Unmute' : 'Mute'} onclick={onMuteToggle}>
 				{#if muted}
 					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -1087,16 +1182,16 @@
 				{/if}
 			</button>
 
-			<button class="overlay-btn" data-tip="Insert ROM" onclick={onInsertRomClick}>
+			<button class="overlay-btn" aria-label="Insert ROM" data-tip="Insert ROM" onclick={onInsertRomClick}>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M4 3H20V19H18V21H6V19H4Z"/>
 					<path d="M6 3V12H18V3"/>
 					<line x1="6" y1="6" x2="18" y2="6"/>
 				</svg>
 			</button>
-			<input bind:this={fileInput} type="file" accept=".nes" style="display:none" onchange={onFileChange} />
+			<input bind:this={fileInput} type="file" accept=".nes,.zip" style="display:none" onchange={onFileChange} />
 
-			<button class="overlay-btn" class:active={showControllerPanel} data-tip="Controllers" onclick={() => { showControllerPanel = !showControllerPanel; }}>
+			<button class="overlay-btn" class:active={showControllerPanel} aria-label="Controllers" data-tip="Controllers" onclick={() => { showControllerPanel = !showControllerPanel; }}>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<line x1="6" y1="12" x2="10" y2="12"/>
 					<line x1="8" y1="10" x2="8" y2="14"/>
@@ -1110,7 +1205,7 @@
 				{userRegion === 'ntsc' ? 'NTSC' : userRegion === 'pal' ? 'PAL' : 'Auto'}
 			</button>
 
-			<button class="overlay-btn" data-tip={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onclick={onFullscreenToggle}>
+			<button class="overlay-btn" aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} data-tip={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onclick={onFullscreenToggle}>
 				{#if isFullscreen}
 					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M8 3v3a2 2 0 0 1-2 2H3"/>
@@ -1131,39 +1226,29 @@
 		</div>
 	</div>
 
-	{#if disconnectWarning}
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="dc-backdrop"></div>
-		<div
-			class="dc-dialog"
-			role="alertdialog"
-			aria-label="Controller disconnected"
-			onclick={(e) => e.stopPropagation()}
-			ondblclick={(e) => e.stopPropagation()}
-		>
-			<svg class="dc-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-				<line x1="12" y1="9" x2="12" y2="13"/>
-				<line x1="12" y1="17" x2="12.01" y2="17"/>
-			</svg>
-			<p class="dc-msg">Player {disconnectWarning.player} controller disconnected</p>
-			<span class="dc-name">{disconnectWarning.padName}</span>
-			<div class="dc-btns">
-				<button class="dc-btn" onclick={onDisconnectSwitchKeyboard}>Switch to Keyboard</button>
-				<button class="dc-btn dc-btn--wait" onclick={onDisconnectWait}>Wait for Reconnect</button>
-				<button class="dc-btn dc-btn--off" onclick={onDisconnectPowerOff}>Power Off</button>
+	{#if showZipChooser}
+		<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+		<div class="zip-chooser-overlay" role="presentation" onclick={() => { showZipChooser = false; }}>
+			<div class="zip-chooser" role="presentation" onclick={(e) => { e.stopPropagation(); }}>
+				<div class="zip-chooser-title">SELECT GAME</div>
+				<div class="zip-chooser-filename">{zipStemName}.zip</div>
+				<div class="zip-chooser-list" bind:this={zipChooserList} role="listbox">
+					{#each zipEntries as entry, i (entry.path)}
+						<button
+							class="zip-chooser-item"
+							class:selected={zipEntryIndex === i}
+							role="option"
+							aria-selected={zipEntryIndex === i}
+							onmouseenter={() => { zipEntryIndex = i; }}
+							onclick={() => { void bootZipEntry(entry); }}
+						>
+							<span class="zip-chooser-arrow">{zipEntryIndex === i ? '▶' : ''}</span>
+							{entry.path.split('/').pop() ?? entry.path}
+						</button>
+					{/each}
+				</div>
+				<div class="zip-chooser-hint">▲▼ SELECT &nbsp;&nbsp; ENTER PLAY &nbsp;&nbsp; ESC CANCEL</div>
 			</div>
-		</div>
-	{/if}
-
-	{#if waitingReconnect}
-		<div class="dc-waiting" onclick={(e) => e.stopPropagation()} ondblclick={(e) => e.stopPropagation()}>
-			<span class="dc-waiting-dot"></span>
-			<span>P{waitingReconnect.player} — waiting for controller…</span>
-			<button onclick={() => {
-				if (disconnectAutoPaused) { nes?._resume(); autoPaused = false; disconnectAutoPaused = false; }
-				waitingReconnect = null;
-			}}>Dismiss</button>
 		</div>
 	{/if}
 
@@ -1220,6 +1305,11 @@
 		background: black;
 		position: relative;
 		outline: none;
+	}
+
+	.nes-screen.cursor-hidden,
+	.nes-screen.cursor-hidden * {
+		cursor: none !important;
 	}
 
 	.pause-overlay {
@@ -1388,142 +1478,124 @@
 		opacity: 1;
 	}
 
-	.dc-backdrop {
+	.drop-target {
+		outline: 2px dashed rgba(255, 255, 255, 0.4);
+		outline-offset: -4px;
+	}
+
+	.zip-chooser-overlay {
 		position: absolute;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.65);
-		z-index: 30;
-	}
-
-	.dc-dialog {
-		position: absolute;
-		inset: 0;
-		margin: auto;
-		width: min(260px, calc(100% - 48px));
-		height: fit-content;
-		background: #0d0d1c;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 10px;
-		z-index: 31;
-		padding: 20px 18px 16px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 6px;
-		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-	}
-
-	.dc-icon {
-		margin-bottom: 2px;
-	}
-
-	.dc-msg {
-		font-size: 0.82rem;
-		color: rgba(255, 255, 255, 0.85);
-		text-align: center;
-		margin: 0;
-		font-weight: 600;
-	}
-
-	.dc-name {
-		font-size: 0.63rem;
-		color: rgba(255, 255, 255, 0.35);
-		text-align: center;
-	}
-
-	.dc-btns {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		width: 100%;
-		margin-top: 8px;
-	}
-
-	.dc-btn {
-		width: 100%;
-		height: 30px;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		border-radius: 5px;
-		background: rgba(255, 255, 255, 0.06);
-		color: rgba(255, 255, 255, 0.75);
-		font-size: 0.72rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: background 0.1s, border-color 0.1s, color 0.1s;
-	}
-
-	.dc-btn:hover {
-		background: rgba(255, 255, 255, 0.12);
-		border-color: rgba(255, 255, 255, 0.24);
-		color: rgba(255, 255, 255, 0.95);
-	}
-
-	.dc-btn--wait {
-		border-color: rgba(74, 222, 128, 0.25);
-		color: #4ade80;
-	}
-
-	.dc-btn--wait:hover {
-		background: rgba(74, 222, 128, 0.1);
-		border-color: rgba(74, 222, 128, 0.45);
-	}
-
-	.dc-btn--off {
-		border-color: rgba(248, 113, 113, 0.25);
-		color: #f87171;
-	}
-
-	.dc-btn--off:hover {
-		background: rgba(248, 113, 113, 0.1);
-		border-color: rgba(248, 113, 113, 0.45);
-	}
-
-	.dc-waiting {
-		position: absolute;
-		bottom: 10px;
-		left: 50%;
-		transform: translateX(-50%);
-		background: rgba(10, 10, 20, 0.88);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 20px;
-		padding: 5px 14px 5px 10px;
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		justify-content: center;
+		background: rgba(0, 0, 4, 0.97);
 		z-index: 20;
-		white-space: nowrap;
+		cursor: pointer;
 	}
 
-	.dc-waiting-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: #f59e0b;
-		flex-shrink: 0;
-		animation: dc-blink 1.2s ease-in-out infinite;
+	.zip-chooser {
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		width: min(94%, 640px);
+		max-height: 84%;
+		background: #000070;
+		border: 3px solid #f8f8f8;
+		outline: 3px solid #f8f8f8;
+		outline-offset: 5px;
+		padding: 28px 32px 22px;
+		font-family: 'Press Start 2P', monospace;
+		color: #f8f8f8;
+		cursor: default;
 	}
 
-	@keyframes dc-blink {
-		0%, 100% { opacity: 1; }
-		50%       { opacity: 0.2; }
+	.zip-chooser-title {
+		font-size: 22px;
+		color: #fcfc00;
+		text-align: center;
+		text-transform: uppercase;
+		margin-bottom: 14px;
+		line-height: 1.5;
 	}
 
-	.dc-waiting span {
-		font-size: 0.68rem;
-		color: rgba(255, 255, 255, 0.6);
+	.zip-chooser-filename {
+		font-size: 11px;
+		color: #a0a0fc;
+		text-align: center;
+		margin-bottom: 22px;
+		line-height: 1.8;
+		word-break: break-all;
 	}
 
-	.dc-waiting button {
-		font-size: 0.62rem;
-		color: rgba(255, 255, 255, 0.3);
+	.zip-chooser-list {
+		width: 100%;
+		flex: 1;
+		overflow-y: auto;
+		scrollbar-width: none;
+		margin-bottom: 18px;
+		min-height: 0;
+	}
+
+	.zip-chooser-list::-webkit-scrollbar {
+		display: none;
+	}
+
+	.zip-chooser-item {
+		appearance: none;
+		-webkit-appearance: none;
 		background: none;
 		border: none;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+		width: 100%;
+		text-align: left;
+		font-size: 15px;
+		padding: 10px 2px;
 		cursor: pointer;
-		padding: 0;
-		margin-left: 2px;
+		color: #9090c0;
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
-	.dc-waiting button:hover {
-		color: rgba(255, 255, 255, 0.65);
+	.zip-chooser-item:last-child {
+		border-bottom: none;
+	}
+
+	.zip-chooser-item.selected {
+		color: #fcfcfc;
+	}
+
+	.zip-chooser-item:hover:not(.selected) {
+		color: #c8c8f0;
+	}
+
+	.zip-chooser-arrow {
+		width: 16px;
+		flex-shrink: 0;
+		color: #fcfc00;
+		font-size: 14px;
+	}
+
+	@keyframes nes-blink {
+		0%, 49% { opacity: 1; }
+		50%, 100% { opacity: 0; }
+	}
+
+	.zip-chooser-item.selected .zip-chooser-arrow {
+		animation: nes-blink 0.7s step-end infinite;
+	}
+
+	.zip-chooser-hint {
+		font-size: 11px;
+		color: #5050c0;
+		text-transform: uppercase;
+		text-align: center;
+		border-top: 1px solid rgba(255, 255, 255, 0.18);
+		padding-top: 14px;
+		line-height: 2;
 	}
 </style>

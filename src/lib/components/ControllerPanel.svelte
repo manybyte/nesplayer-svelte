@@ -238,8 +238,10 @@
 	role="dialog"
 	aria-label="Controller settings"
 	aria-modal="true"
+	tabindex="-1"
 	onclick={(e) => e.stopPropagation()}
 	ondblclick={(e) => e.stopPropagation()}
+	onkeydown={(e) => e.stopPropagation()}
 >
 	<div class="cp-header">
 		<span class="cp-title">Controllers</span>

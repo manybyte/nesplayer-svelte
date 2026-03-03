@@ -1,5 +1,5 @@
 export const audioWorkletSrc = `
-const RING_SIZE   = 4096;
+const RING_SIZE   = 8192;
 const PRE_BUFFER  = 1024;
 const TARGET_FILL = 1536;
 const SMOOTH      = 0.005;
