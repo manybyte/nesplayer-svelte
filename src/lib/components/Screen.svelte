@@ -226,7 +226,8 @@
 
 	function quickSave() {
 		if (!nes || !powered) { return; }
-		const size     = nes._saveCPUState();
+		const size = nes._saveCPUState();
+		if (size === 0) { return; }
 		const ptr      = nes._getStateBufPtr();
 		quickSaveState = nes.HEAPU8.slice(ptr, ptr + size);
 		if (currentRomName) {
@@ -236,7 +237,7 @@
 	}
 
 	function quickLoad() {
-		if (!nes || !powered || !quickSaveState) { return; }
+		if (!nes || !powered || !quickSaveState || quickSaveState.length === 0) { return; }
 		const ptr = nes._malloc(quickSaveState.length);
 		nes.HEAPU8.set(quickSaveState, ptr);
 		nes._restoreCPUState(ptr, quickSaveState.length);
@@ -246,6 +247,7 @@
 		autoPaused = false;
 		lastTime   = 0;
 		cycleAccum = 0;
+		drawFrame(nes);
 		showStateMessage('State loaded');
 	}
 
