@@ -231,3 +231,32 @@ The screen is rendered with WebGL (WebGL 1). Any browser that supports Svelte 5 
 ## Browser support
 
 Requires Chrome 85+, Firefox 79+, or Safari 15+. These are the minimum versions supported by the underlying WASM runtime.
+
+---
+
+## Changelog
+
+### v0.14.2 — 2026-03-03
+- Fixed quick save/load: guard against empty state (unsupported mapper), render frame immediately after restore
+- Fixed audio crackling and popping
+- Added `.zip` file loading — open a zip containing a `.nes` ROM directly from the file picker
+- Added drag-and-drop support for `.nes` and `.zip` files
+- Increased audio ring buffer to 8192 samples for smoother playback
+- QoL improvements throughout the player
+
+### v0.14.0 — 2026-03-01
+- Switched to `@sveltejs/package` distribution flow (`svelte-package` → `dist/`)
+
+### v0.11.0 — 2026-03-01
+- Additional audio stability fixes
+
+### v0.8.0 — 2026-03-01
+- Added Quick Save (F5) and Quick Load (F7) with `localStorage` persistence
+- Battery SRAM auto-save and restore on page load/unload
+- Mapper 30 flash storage persistence
+- First public release
+
+### v0.1.0 — 2026-03-01
+- Full controller settings panel with per-player keyboard rebinding
+- Bluetooth/gamepad support with automatic connect and disconnect dialog
+- Initial working NES emulator with audio (NROM, MMC1, MMC3, AXROM, Mapper 30)
