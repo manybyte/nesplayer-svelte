@@ -485,10 +485,15 @@
 {/snippet}
 
 <style>
+	/* This component reads the package-local vocabulary declared on .nes-screen
+	   in Screen.svelte. ControllerPanel is not exported from index.ts and only
+	   ever mounts inside .nes-screen, so the properties inherit; restating the
+	   block here would reintroduce exactly the duplication it removes. Nothing
+	   in this package imports @manybitsbyte/ui or the app's token scale. */
 	.cp-backdrop {
 		position: absolute;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.58);
+		background: var(--nesp-scrim);
 		z-index: 20;
 		cursor: default;
 	}
@@ -500,30 +505,30 @@
 		width: min(292px, calc(100% - 68px));
 		height: fit-content;
 		max-height: calc(100% - 20px);
-		background: #0d0d1c;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 10px;
+		background: var(--nesp-panel);
+		border: 1px solid var(--nesp-edge-strong);
+		border-radius: var(--nesp-radius-lg);
 		overflow-y: auto;
 		overflow-x: hidden;
 		z-index: 21;
 		display: flex;
 		flex-direction: column;
-		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.75);
+		box-shadow: 0 10px 40px var(--nesp-scrim-deep);
 	}
 
 	.cp-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 10px 12px 9px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+		padding: var(--nesp-space-md) var(--nesp-space-md) var(--nesp-space-sm);
+		border-bottom: 1px solid var(--nesp-edge);
 		flex-shrink: 0;
 	}
 
 	.cp-title {
-		font-size: 0.72rem;
-		font-weight: 700;
-		color: rgba(255, 255, 255, 0.7);
+		font-size: var(--nesp-text-md);
+		font-weight: var(--nesp-weight-bold);
+		color: var(--nesp-label-dim);
 		letter-spacing: 0.12em;
 		text-transform: uppercase;
 	}
@@ -532,9 +537,9 @@
 		width: 22px;
 		height: 22px;
 		border: none;
-		background: rgba(255, 255, 255, 0.07);
-		border-radius: 4px;
-		color: rgba(255, 255, 255, 0.5);
+		background: var(--nesp-edge);
+		border-radius: var(--nesp-radius);
+		color: var(--nesp-label-dim);
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -544,12 +549,12 @@
 	}
 
 	.cp-close:hover {
-		background: rgba(255, 255, 255, 0.14);
-		color: rgba(255, 255, 255, 0.85);
+		background: var(--nesp-edge-strong);
+		color: var(--nesp-label);
 	}
 
 	.cp-art {
-		padding: 10px 20px 4px;
+		padding: var(--nesp-space-md) var(--nesp-space-xl) var(--nesp-space-xs);
 		display: flex;
 		justify-content: center;
 		flex-shrink: 0;
@@ -563,48 +568,52 @@
 
 	.cp-divider {
 		border: none;
-		border-top: 1px solid rgba(255, 255, 255, 0.07);
-		margin: 4px 0;
+		border-top: 1px solid var(--nesp-edge);
+		margin: var(--nesp-space-xs) 0;
 	}
 
 	.cp-section {
-		padding: 8px 14px 10px;
-		border-top: 1px solid rgba(255, 255, 255, 0.06);
+		padding: var(--nesp-space-sm) var(--nesp-space-lg) var(--nesp-space-md);
+		border-top: 1px solid var(--nesp-edge);
 	}
 
 	.cp-player-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 7px;
+		margin-bottom: var(--nesp-space-sm);
 	}
 
 	.cp-player-label {
-		font-size: 0.62rem;
-		font-weight: 700;
+		font-size: var(--nesp-text-xs);
+		font-weight: var(--nesp-weight-bold);
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		color: rgba(255, 255, 255, 0.35);
+		color: var(--nesp-label-faint);
 	}
 
-.cp-source-row {
+	.cp-source-row {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 5px;
-		margin-bottom: 2px;
+		gap: var(--nesp-space-xs);
+		margin-bottom: var(--nesp-space-2xs);
 	}
 
+	/* Same panel-control skin as .dc-btn / .cp-key-tag / .cp-reset-btn.
+	   --nesp-radius-pill is the one divergence KEPT: this is a segmented
+	   input-source chip row, and the pill is what separates a source choice
+	   from the square controls under it. */
 	.cp-source-btn {
 		display: flex;
 		align-items: center;
-		gap: 5px;
-		padding: 4px 10px;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 20px;
-		background: rgba(255, 255, 255, 0.04);
-		color: rgba(255, 255, 255, 0.5);
-		font-size: 0.68rem;
-		font-weight: 600;
+		gap: var(--nesp-space-xs);
+		padding: var(--nesp-space-xs) var(--nesp-space-md);
+		border: 1px solid var(--nesp-edge-strong);
+		border-radius: var(--nesp-radius-pill);
+		background: var(--nesp-edge);
+		color: var(--nesp-label-dim);
+		font-size: var(--nesp-text-sm);
+		font-weight: var(--nesp-weight);
 		cursor: pointer;
 		white-space: nowrap;
 		transition: border-color 0.1s, background 0.1s, color 0.1s;
@@ -618,22 +627,22 @@
 	}
 
 	.cp-source-btn:hover {
-		border-color: rgba(255, 255, 255, 0.22);
-		background: rgba(255, 255, 255, 0.08);
-		color: rgba(255, 255, 255, 0.8);
+		border-color: var(--nesp-edge-bright);
+		background: var(--nesp-edge-strong);
+		color: var(--nesp-label);
 	}
 
 	.cp-source-btn.active {
-		border-color: #4ade80;
-		background: rgba(74, 222, 128, 0.1);
-		color: #4ade80;
+		border-color: var(--nesp-good);
+		background: var(--nesp-good-fill);
+		color: var(--nesp-good);
 	}
 
 	.cp-bindings {
 		display: flex;
 		flex-direction: column;
-		gap: 5px;
-		margin-top: 8px;
+		gap: var(--nesp-space-xs);
+		margin-top: var(--nesp-space-sm);
 	}
 
 	.cp-row {
@@ -643,21 +652,23 @@
 	}
 
 	.cp-btn-label {
-		font-size: 0.75rem;
-		color: rgba(255, 255, 255, 0.55);
+		font-size: var(--nesp-text-md);
+		color: var(--nesp-label-dim);
 		min-width: 52px;
 	}
 
+	/* font-family: inherit is a UA reset — a <button> does not inherit the
+	   host page's font. It is not a style literal and has no named form. */
 	.cp-key-tag {
 		min-width: 80px;
 		height: 26px;
-		padding: 0 10px;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		border-radius: 5px;
-		background: rgba(255, 255, 255, 0.05);
-		color: rgba(255, 255, 255, 0.8);
-		font-size: 0.72rem;
-		font-weight: 600;
+		padding: 0 var(--nesp-space-md);
+		border: 1px solid var(--nesp-edge-strong);
+		border-radius: var(--nesp-radius);
+		background: var(--nesp-edge);
+		color: var(--nesp-label);
+		font-size: var(--nesp-text-md);
+		font-weight: var(--nesp-weight);
 		font-family: inherit;
 		cursor: pointer;
 		text-align: center;
@@ -666,44 +677,47 @@
 	}
 
 	.cp-key-tag:hover {
-		border-color: rgba(255, 255, 255, 0.26);
-		background: rgba(255, 255, 255, 0.09);
+		border-color: var(--nesp-edge-bright);
+		background: var(--nesp-edge-strong);
 	}
 
 	.cp-key-tag.rebinding {
-		border-color: #f87171;
-		background: rgba(248, 113, 113, 0.12);
+		border-color: var(--nesp-bad);
+		background: var(--nesp-bad-fill);
 		animation: cp-pulse 0.8s ease-in-out infinite alternate;
 	}
 
+	/* `transparent` replaces a zero-alpha spelling of --nesp-bad. Colour
+	   interpolation is premultiplied, so both premultiply to (0,0,0,0) and the
+	   animation is byte-identical. */
 	@keyframes cp-pulse {
-		from { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0); }
-		to   { box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.25); }
+		from { box-shadow: 0 0 0 0 transparent; }
+		to   { box-shadow: 0 0 0 3px var(--nesp-bad-line); }
 	}
 
 	.cp-listening {
-		color: #f87171;
+		color: var(--nesp-bad);
 		font-style: italic;
-		font-size: 0.65rem;
+		font-size: var(--nesp-text-sm);
 	}
 
 	.cp-reset-btn {
-		margin-top: 8px;
+		margin-top: var(--nesp-space-sm);
 		width: 100%;
 		height: 26px;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 5px;
-		background: rgba(255, 255, 255, 0.03);
-		color: rgba(255, 255, 255, 0.35);
-		font-size: 0.66rem;
-		font-weight: 600;
+		border: 1px solid var(--nesp-edge-strong);
+		border-radius: var(--nesp-radius);
+		background: var(--nesp-edge);
+		color: var(--nesp-label-faint);
+		font-size: var(--nesp-text-sm);
+		font-weight: var(--nesp-weight);
 		letter-spacing: 0.04em;
 		cursor: pointer;
 		transition: background 0.1s, color 0.1s;
 	}
 
 	.cp-reset-btn:hover {
-		background: rgba(255, 255, 255, 0.08);
-		color: rgba(255, 255, 255, 0.65);
+		background: var(--nesp-edge-strong);
+		color: var(--nesp-label-dim);
 	}
 </style>

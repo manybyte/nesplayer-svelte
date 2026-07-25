@@ -1141,7 +1141,7 @@
 			onclick={(e) => e.stopPropagation()}
 			ondblclick={(e) => e.stopPropagation()}
 		>
-			<svg class="dc-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<svg class="dc-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
 				<line x1="12" y1="9" x2="12" y2="13"/>
 				<line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -1211,7 +1211,57 @@
 </div>
 
 <style>
+	/* Package-local vocabulary — the nesplayer's own named set.
+	   This package ships standalone and takes zero dependencies, so it cannot
+	   read @manybitsbyte/ui's token scale; it publishes its own roles here, on
+	   its outermost element. Names are ROLES, not values, and this is
+	   deliberately NOT the app's --<scale>-<step> grid: the package cannot see
+	   that grid and must never import it.
+	   ControllerPanel.svelte is internal to this package (not exported from
+	   index.ts) and only ever mounts inside .nes-screen, so it inherits this
+	   block instead of restating it. Restating it would be exactly the
+	   duplication this block exists to remove. */
 	.nes-screen {
+		--nesp-panel: #0d0d1c;
+		--nesp-scrim: rgba(0, 0, 0, 0.6);
+		--nesp-scrim-deep: rgba(0, 0, 0, 0.8);
+
+		--nesp-edge: rgba(255, 255, 255, 0.05);
+		--nesp-edge-strong: rgba(255, 255, 255, 0.1);
+		--nesp-edge-bright: rgba(255, 255, 255, 0.25);
+
+		--nesp-label: rgba(255, 255, 255, 0.85);
+		--nesp-label-dim: rgba(255, 255, 255, 0.6);
+		--nesp-label-faint: rgba(255, 255, 255, 0.35);
+
+		--nesp-good: #4ade80;
+		--nesp-bad: #f87171;
+		--nesp-warn: #f59e0b;
+
+		--nesp-good-fill: color-mix(in srgb, var(--nesp-good) 10%, transparent);
+		--nesp-good-line: color-mix(in srgb, var(--nesp-good) 25%, transparent);
+		--nesp-good-line-hover: color-mix(in srgb, var(--nesp-good) 45%, transparent);
+		--nesp-bad-fill: color-mix(in srgb, var(--nesp-bad) 10%, transparent);
+		--nesp-bad-line: color-mix(in srgb, var(--nesp-bad) 25%, transparent);
+		--nesp-bad-line-hover: color-mix(in srgb, var(--nesp-bad) 45%, transparent);
+
+		--nesp-space-2xs: 2px;
+		--nesp-space-xs: 5px;
+		--nesp-space-sm: 8px;
+		--nesp-space-md: 10px;
+		--nesp-space-lg: 14px;
+		--nesp-space-xl: 20px;
+
+		--nesp-radius: 4px;
+		--nesp-radius-lg: 10px;
+		--nesp-radius-pill: 20px;
+
+		--nesp-text-xs: 0.62rem;
+		--nesp-text-sm: 0.68rem;
+		--nesp-text-md: 0.72rem;
+		--nesp-weight: 600;
+		--nesp-weight-bold: 700;
+
 		width: 100%;
 		height: 100%;
 		display: flex;
@@ -1227,10 +1277,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: rgba(0, 0, 0, 0.45);
-		color: rgba(255, 255, 255, 0.9);
+		background: var(--nesp-scrim);
+		color: var(--nesp-label);
 		font-size: 1.5rem;
-		font-weight: 600;
+		font-weight: var(--nesp-weight);
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
 		pointer-events: none;
@@ -1250,12 +1300,12 @@
 		position: absolute;
 		inset: 0;
 		box-sizing: border-box;
-		background: rgba(0, 0, 0, 0.6);
+		background: var(--nesp-scrim);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		padding: 6px 0;
-		gap: 4px;
+		padding: var(--nesp-space-xs) 0;
+		gap: var(--nesp-space-xs);
 		opacity: 0;
 		transition: opacity 0.15s ease;
 	}
@@ -1264,14 +1314,20 @@
 		opacity: 1;
 	}
 
+	/* The video rail. It sits on arbitrary game video, not on --nesp-panel, so
+	   it takes the ramp one step up from the panel controls at every state:
+	   fill --nesp-edge-strong / --nesp-edge-bright where a panel control takes
+	   --nesp-edge / --nesp-edge-strong, and its resting label is the full
+	   --nesp-label. Borderless for the same reason. Divergence KEPT — contrast
+	   over unknown video is load-bearing; the rest of the skin is the shared set. */
 	.overlay-btn {
 		width: 36px;
 		height: 36px;
 		min-height: 0;
 		border: none;
-		border-radius: 4px;
-		background: rgba(255, 255, 255, 0.1);
-		color: rgba(255, 255, 255, 0.85);
+		border-radius: var(--nesp-radius);
+		background: var(--nesp-edge-strong);
+		color: var(--nesp-label);
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -1280,20 +1336,20 @@
 	}
 
 	.overlay-btn:hover {
-		background: rgba(255, 255, 255, 0.25);
+		background: var(--nesp-edge-bright);
 	}
 
 	.overlay-btn.active {
-		color: #f87171;
+		color: var(--nesp-bad);
 	}
 
 	.overlay-btn.powered {
-		color: #4ade80;
+		color: var(--nesp-good);
 	}
 
 	.overlay-btn--region {
-		font-size: 0.6rem;
-		font-weight: 700;
+		font-size: var(--nesp-text-xs);
+		font-weight: var(--nesp-weight-bold);
 		letter-spacing: 0.05em;
 	}
 
@@ -1304,15 +1360,15 @@
 	.overlay-btn[data-tip]::after {
 		content: attr(data-tip);
 		position: absolute;
-		right: calc(100% + 8px);
+		right: calc(100% + var(--nesp-space-sm));
 		top: 50%;
 		transform: translateY(-50%);
-		background: rgba(0, 0, 0, 0.85);
-		color: rgba(255, 255, 255, 0.9);
-		font-size: 0.68rem;
-		font-weight: 500;
-		padding: 3px 8px;
-		border-radius: 4px;
+		background: var(--nesp-scrim-deep);
+		color: var(--nesp-label);
+		font-size: var(--nesp-text-sm);
+		font-weight: var(--nesp-weight);
+		padding: var(--nesp-space-2xs) var(--nesp-space-sm);
+		border-radius: var(--nesp-radius);
 		white-space: nowrap;
 		pointer-events: none;
 		opacity: 0;
@@ -1341,7 +1397,7 @@
 		width: 32px;
 		height: 100%;
 		cursor: pointer;
-		accent-color: rgba(255, 255, 255, 0.85);
+		accent-color: var(--nesp-label);
 	}
 
 	.state-toast {
@@ -1350,10 +1406,10 @@
 		align-items: center;
 		justify-content: center;
 		height: 32px;
-		background: rgba(0, 0, 0, 0.72);
-		color: rgba(255, 255, 255, 0.88);
-		font-size: 0.72rem;
-		font-weight: 600;
+		background: var(--nesp-scrim-deep);
+		color: var(--nesp-label);
+		font-size: var(--nesp-text-md);
+		font-weight: var(--nesp-weight);
 		letter-spacing: 0.08em;
 		pointer-events: none;
 		z-index: 10;
@@ -1369,15 +1425,15 @@
 	.version-badge {
 		position: absolute;
 		height: 20px;
-		padding: 0 8px;
+		padding: 0 var(--nesp-space-sm);
 		display: flex;
 		align-items: center;
-		background: rgba(0, 0, 0, 0.5);
-		color: rgba(255, 255, 255, 0.38);
-		font-size: 0.6rem;
-		font-weight: 600;
+		background: var(--nesp-scrim);
+		color: var(--nesp-label-faint);
+		font-size: var(--nesp-text-xs);
+		font-weight: var(--nesp-weight);
 		letter-spacing: 0.07em;
-		border-radius: 4px;
+		border-radius: var(--nesp-radius);
 		pointer-events: none;
 		z-index: 10;
 		opacity: 0;
@@ -1391,7 +1447,7 @@
 	.dc-backdrop {
 		position: absolute;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.65);
+		background: var(--nesp-scrim);
 		z-index: 30;
 	}
 
@@ -1401,95 +1457,104 @@
 		margin: auto;
 		width: min(260px, calc(100% - 48px));
 		height: fit-content;
-		background: #0d0d1c;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 10px;
+		background: var(--nesp-panel);
+		border: 1px solid var(--nesp-edge-strong);
+		border-radius: var(--nesp-radius-lg);
 		z-index: 31;
-		padding: 20px 18px 16px;
+		padding: var(--nesp-space-xl) var(--nesp-space-xl) var(--nesp-space-lg);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 6px;
-		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+		gap: var(--nesp-space-xs);
+		box-shadow: 0 10px 40px var(--nesp-scrim-deep);
 	}
 
 	.dc-icon {
-		margin-bottom: 2px;
+		margin-bottom: var(--nesp-space-2xs);
+		color: var(--nesp-warn);
 	}
 
+	/* 0.82rem is the dialog headline and is the only step above --nesp-text-md
+	   in the package. Kept as a one-off: collapsing it onto --nesp-text-md
+	   would put the message at the same size as the buttons under it and lose
+	   the only type hierarchy the dialog has. */
 	.dc-msg {
 		font-size: 0.82rem;
-		color: rgba(255, 255, 255, 0.85);
+		color: var(--nesp-label);
 		text-align: center;
 		margin: 0;
-		font-weight: 600;
+		font-weight: var(--nesp-weight);
 	}
 
 	.dc-name {
-		font-size: 0.63rem;
-		color: rgba(255, 255, 255, 0.35);
+		font-size: var(--nesp-text-xs);
+		color: var(--nesp-label-faint);
 		text-align: center;
 	}
 
 	.dc-btns {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: var(--nesp-space-xs);
 		width: 100%;
-		margin-top: 8px;
+		margin-top: var(--nesp-space-sm);
 	}
 
+	/* The panel-control skin. .cp-key-tag / .cp-reset-btn / .cp-source-btn /
+	   .cp-close in ControllerPanel.svelte are the same skin and now read the
+	   same four roles: --nesp-edge at rest, --nesp-edge-strong on hover, the
+	   resting rule --nesp-edge-strong, the hover rule --nesp-edge-bright. */
 	.dc-btn {
 		width: 100%;
 		height: 30px;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		border-radius: 5px;
-		background: rgba(255, 255, 255, 0.06);
-		color: rgba(255, 255, 255, 0.75);
-		font-size: 0.72rem;
-		font-weight: 600;
+		border: 1px solid var(--nesp-edge-strong);
+		border-radius: var(--nesp-radius);
+		background: var(--nesp-edge);
+		color: var(--nesp-label-dim);
+		font-size: var(--nesp-text-md);
+		font-weight: var(--nesp-weight);
 		cursor: pointer;
 		transition: background 0.1s, border-color 0.1s, color 0.1s;
 	}
 
 	.dc-btn:hover {
-		background: rgba(255, 255, 255, 0.12);
-		border-color: rgba(255, 255, 255, 0.24);
-		color: rgba(255, 255, 255, 0.95);
+		background: var(--nesp-edge-strong);
+		border-color: var(--nesp-edge-bright);
+		color: var(--nesp-label);
 	}
 
 	.dc-btn--wait {
-		border-color: rgba(74, 222, 128, 0.25);
-		color: #4ade80;
+		border-color: var(--nesp-good-line);
+		color: var(--nesp-good);
 	}
 
 	.dc-btn--wait:hover {
-		background: rgba(74, 222, 128, 0.1);
-		border-color: rgba(74, 222, 128, 0.45);
+		background: var(--nesp-good-fill);
+		border-color: var(--nesp-good-line-hover);
 	}
 
 	.dc-btn--off {
-		border-color: rgba(248, 113, 113, 0.25);
-		color: #f87171;
+		border-color: var(--nesp-bad-line);
+		color: var(--nesp-bad);
 	}
 
 	.dc-btn--off:hover {
-		background: rgba(248, 113, 113, 0.1);
-		border-color: rgba(248, 113, 113, 0.45);
+		background: var(--nesp-bad-fill);
+		border-color: var(--nesp-bad-line-hover);
 	}
 
 	.dc-waiting {
 		position: absolute;
-		bottom: 10px;
+		bottom: var(--nesp-space-md);
 		left: 50%;
 		transform: translateX(-50%);
-		background: rgba(10, 10, 20, 0.88);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 20px;
-		padding: 5px 14px 5px 10px;
+		background: var(--nesp-panel);
+		border: 1px solid var(--nesp-edge-strong);
+		border-radius: var(--nesp-radius-pill);
+		padding: var(--nesp-space-xs) var(--nesp-space-lg) var(--nesp-space-xs) var(--nesp-space-md);
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--nesp-space-sm);
 		z-index: 20;
 		white-space: nowrap;
 	}
@@ -1498,7 +1563,7 @@
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
-		background: #f59e0b;
+		background: var(--nesp-warn);
 		flex-shrink: 0;
 		animation: dc-blink 1.2s ease-in-out infinite;
 	}
@@ -1509,21 +1574,21 @@
 	}
 
 	.dc-waiting span {
-		font-size: 0.68rem;
-		color: rgba(255, 255, 255, 0.6);
+		font-size: var(--nesp-text-sm);
+		color: var(--nesp-label-dim);
 	}
 
 	.dc-waiting button {
-		font-size: 0.62rem;
-		color: rgba(255, 255, 255, 0.3);
+		font-size: var(--nesp-text-xs);
+		color: var(--nesp-label-faint);
 		background: none;
 		border: none;
 		cursor: pointer;
 		padding: 0;
-		margin-left: 2px;
+		margin-left: var(--nesp-space-2xs);
 	}
 
 	.dc-waiting button:hover {
-		color: rgba(255, 255, 255, 0.65);
+		color: var(--nesp-label-dim);
 	}
 </style>
