@@ -1,3 +1,5 @@
+<!-- SOFT literal exception — this component's complete accounting (literal-debt-and-scan-fidelity). The per-family roll-up below gates nothing on its own.
+     package token namespace ×1 — packages/nes/nesplayer-svelte is a self-contained distributable with its own --nesp-* namespace and deliberately does not consume the ui scale -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Screen from '$lib/components/Screen.svelte';
