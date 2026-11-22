@@ -74,6 +74,7 @@
 		width: 16px;
 		height: 16px;
 		cursor: nwse-resize;
+		/* soft-diverge ×1: dev-harness resize grip — it sits outside .nes-screen, so the package's --nesp-edge-bright never reaches it, and this route is not packaged so it ships to no one */
 		background: rgba(255, 255, 255, 0.25);
 	}
 </style>

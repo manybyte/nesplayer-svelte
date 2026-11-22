@@ -1224,21 +1224,21 @@
 	   block instead of restating it. Restating it would be exactly the
 	   duplication this block exists to remove. */
 	.nes-screen {
-		--nesp-panel: #0d0d1c;
-		--nesp-scrim: rgba(0, 0, 0, 0.6);
-		--nesp-scrim-deep: rgba(0, 0, 0, 0.8);
+		--nesp-panel: #0d0d1c; /* soft-diverge ×1: root value of the package's own panel ground — the player ships standalone without the ui token sheet, so this declaration IS the source and has no token to read */
+		--nesp-scrim: rgba(0, 0, 0, 0.6); /* soft-diverge ×1: root value of the pause scrim — black at alpha is an effect, not a hue on any scale, and no sheet is loaded to read it from */
+		--nesp-scrim-deep: rgba(0, 0, 0, 0.8); /* soft-diverge ×1: root value of the deeper scrim behind the controller panel — the same effect-black, one step more opaque */
 
-		--nesp-edge: rgba(255, 255, 255, 0.05);
-		--nesp-edge-strong: rgba(255, 255, 255, 0.1);
-		--nesp-edge-bright: rgba(255, 255, 255, 0.25);
+		--nesp-edge: rgba(255, 255, 255, 0.05); /* soft-diverge ×1: root value of the faintest rim/fill — white at alpha over whatever the host page paints behind the player, not a themed colour */
+		--nesp-edge-strong: rgba(255, 255, 255, 0.1); /* soft-diverge ×1: root value of the default control border — second step of the package's own white-alpha rim ladder */
+		--nesp-edge-bright: rgba(255, 255, 255, 0.25); /* soft-diverge ×1: root value of the hover/focus rim — top step of the same white-alpha rim ladder */
 
-		--nesp-label: rgba(255, 255, 255, 0.85);
-		--nesp-label-dim: rgba(255, 255, 255, 0.6);
-		--nesp-label-faint: rgba(255, 255, 255, 0.35);
+		--nesp-label: rgba(255, 255, 255, 0.85); /* soft-diverge ×1: root value of primary label ink — white at alpha so the player reads over any host background; there is no ui text token here to defer to */
+		--nesp-label-dim: rgba(255, 255, 255, 0.6); /* soft-diverge ×1: root value of secondary label ink, one step down the same white-alpha ink ladder */
+		--nesp-label-faint: rgba(255, 255, 255, 0.35); /* soft-diverge ×1: root value of tertiary label ink, the faintest step of the same white-alpha ink ladder */
 
-		--nesp-good: #4ade80;
-		--nesp-bad: #f87171;
-		--nesp-warn: #f59e0b;
+		--nesp-good: #4ade80; /* soft-diverge ×1: root value of the OK/connected status hue — status identity this package owns, and it ships without the ui accent ramp */
+		--nesp-bad: #f87171; /* soft-diverge ×1: root value of the error/disconnected status hue — same package-owned status set */
+		--nesp-warn: #f59e0b; /* soft-diverge ×1: root value of the warning status hue — same package-owned status set */
 
 		--nesp-good-fill: color-mix(in srgb, var(--nesp-good) 10%, transparent);
 		--nesp-good-line: color-mix(in srgb, var(--nesp-good) 25%, transparent);
@@ -1281,7 +1281,7 @@
 		justify-content: center;
 		background: var(--nesp-scrim);
 		color: var(--nesp-label);
-		font-size: 1.5rem;
+		font-size: 1.5rem; /* soft-diverge ×1: the PAUSED word is display type, far above the package's --nesp-text-* ladder; one site, so cascade-conventions §5's rule of three forbids minting a step for it */
 		font-weight: var(--nesp-weight);
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
@@ -1476,11 +1476,8 @@
 		color: var(--nesp-warn);
 	}
 
-	/* 0.82rem is the dialog headline and is the only step above --nesp-text-md
-	   in the package. Kept as a one-off: collapsing it onto --nesp-text-md
-	   would put the message at the same size as the buttons under it and lose
-	   the only type hierarchy the dialog has. */
 	.dc-msg {
+		/* soft-diverge ×1: the dialog headline is the only step above --nesp-text-md in the package; collapsing it onto that step would size the message like the buttons under it and lose the dialog's only type hierarchy, and one site is below cascade-conventions §5's rule of three */
 		font-size: 0.82rem;
 		color: var(--nesp-label);
 		text-align: center;

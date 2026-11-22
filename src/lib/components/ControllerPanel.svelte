@@ -659,8 +659,6 @@
 		min-width: 52px;
 	}
 
-	/* font-family: inherit is a UA reset — a <button> does not inherit the
-	   host page's font. It is not a style literal and has no named form. */
 	.cp-key-tag {
 		min-width: 80px;
 		height: 26px;
@@ -671,6 +669,7 @@
 		color: var(--nesp-label);
 		font-size: var(--nesp-text-md);
 		font-weight: var(--nesp-weight);
+		/* soft-diverge ×1: UA reset — a button element does not inherit the host page's font, and the CSS-wide keyword inherit hardcodes nothing, so no token could stand in its place */
 		font-family: inherit;
 		cursor: pointer;
 		text-align: center;
